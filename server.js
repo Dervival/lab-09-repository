@@ -102,16 +102,88 @@ Location.lookupLocation = (handler) => {
 }
 
 /*---------------------WEATHER--------------------------*/
-function getWeather(request, response){
-  const URL = `https://api.darksky.net/forecast/${process.env.DARK_SKY_API}/${request.query.data.latitude},${request.query.data.longitude}`;
-  return superagent.get(URL)
-    .then(forecastResults =>{
-      response.send(forecastResults.body.daily.data.map((day)=>{
-        return new DailyWeather(day);
-      }));
-    })
-    .catch(error => handleError(error, response));
+
+function DailyWeather(data){
+  this.forecast = data.summary;
+  this.time = new Date(data.time * 1000).toString().slice(0,15);
 }
+
+DailyWeather.prototype.save = function(id){
+  const SQL = `INSERT INTO weathers (forecast, time, location_id) VALUES ($1, $2, $3);`;
+  const values = Object.values(this);
+  values.push(id);
+  client.query(SQL, values);
+}
+
+DailyWeather.deleteEntrybyId = function (id){
+  const SQL = `DELETE FROM weathers WHERE location_id=${id};`;
+  client.query(SQL)
+    .then(() =>{
+      console.log('Deleted entry from SQL');
+    })
+    .catch(error => handleError(error));
+}
+
+DailyWeather.lookup = function(handler) {
+  const SQL = `SELECT * FROM weathers WHERE location_id=$1;`;
+  client.query(SQL, [handler.location.id])
+    .then(result =>{
+      if(result.rowCount > 0){
+        console.log('Data in SQL');
+        handler.cacheHit(result);
+      }
+      else{
+        console.log('Got data from API');
+        handler.cacheMiss();
+      }
+    })
+    .catch(error => handleError(error));
+}
+
+DailyWeather.fetch = function(location){
+  const URL = `https://api.darksky.net/forecast/${process.env.DARK_SKY_API}/${location.latitude},${location.longitude}`;
+
+  return superagent.get(URL)
+    .then(result => {
+      const weatherSummaries = result.body.daily.data.map(day =>{
+        const summary = new DailyWeather(day);
+        summary.save(location.id);
+        return summary;
+      });
+      return weatherSummaries;
+    });
+};
+
+function getWeather(request, response){
+  const handler = {
+    location: request.query.data,
+
+    cacheHit: function(result) {
+      response.send(result.rows);
+    },
+
+    cacheMiss: function() {
+      DailyWeather.fetch(request.query.data)
+        .then( results => response.send(results))
+        .catch( console.error );
+    },
+  };
+
+  DailyWeather.lookup(handler);
+}
+/*--------old-----------*/
+// function getWeather(request, response){
+//   const URL = `https://api.darksky.net/forecast/${process.env.DARK_SKY_API}/${request.query.data.latitude},${request.query.data.longitude}`;
+//   return superagent.get(URL)
+//     .then(forecastResults =>{
+//       response.send(forecastResults.body.daily.data.map((day)=>{
+//         return new DailyWeather(day);
+//       }));
+//     })
+//     .catch(error => handleError(error, response));
+// }
+
+
 /*---------------------YELP--------------------------*/
 function getYelp(request, response){
   const URL = `https://api.yelp.com/v3/businesses/search?term=restaurants&latitude=${request.query.data.latitude}&longitude=${request.query.data.longitude}`;
@@ -138,10 +210,7 @@ function getMovie(request, response){
 }
 
 
-function DailyWeather(data){
-  this.forecast = data.summary;
-  this.time = new Date(data.time * 1000).toString().slice(0,15);
-}
+
 
 function YelpRestaurants(data){
   this.name = data.name;
