@@ -18,11 +18,6 @@ const app = express();
 app.use(cors());
 
 app.get('/location', getLocation);
-// app.get('/location', (request, response) => {
-//   getLocation(request.query.data)
-//     .then(locationData => response.send(locationData))
-//     .catch(error => handleError(error, response))
-// });
 
 app.get('/weather', getWeather);
 
@@ -131,7 +126,6 @@ DailyWeather.lookup = function(handler) {
     .then(result =>{
       if(result.rowCount > 0){
         let currentAge = (Date.now() - result.rows[0].created_at) / (1000 * 60); //invalidate every hour
-        // console.log (currentAge);
         if( result.rowCount > 0 && currentAge > 1){
           console.log('Data was too old, refreshing');
           DailyWeather.deleteEntrybyId(handler.location.id);
@@ -181,31 +175,103 @@ function getWeather(request, response){
 
   DailyWeather.lookup(handler);
 }
-/*--------old-----------*/
-// function getWeather(request, response){
-//   const URL = `https://api.darksky.net/forecast/${process.env.DARK_SKY_API}/${request.query.data.latitude},${request.query.data.longitude}`;
-//   return superagent.get(URL)
-//     .then(forecastResults =>{
-//       response.send(forecastResults.body.daily.data.map((day)=>{
-//         return new DailyWeather(day);
-//       }));
-//     })
-//     .catch(error => handleError(error, response));
-// }
-
 
 /*---------------------YELP--------------------------*/
-function getYelp(request, response){
-  const URL = `https://api.yelp.com/v3/businesses/search?term=restaurants&latitude=${request.query.data.latitude}&longitude=${request.query.data.longitude}`;
+function YelpRestaurants(data){
+  this.name = data.name;
+  this.image_url = data.image_url;
+  this.price = data.price;
+  this.rating = data.rating;
+  this.url = data.url;
+}
+
+YelpRestaurants.prototype.save = function(id){
+  const SQL = `INSERT INTO yelps (name, image_url, price, rating, url, location_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7);`;
+  const values = Object.values(this);
+  values.push(id);
+  values.push(Date.now());
+  client.query(SQL, values);
+}
+
+YelpRestaurants.deleteEntrybyId = function (id){
+  const SQL = `DELETE FROM yelps WHERE location_id=${id};`;
+  client.query(SQL)
+    .then(() =>{
+      console.log('Deleted entry from SQL');
+    })
+    .catch(error => handleError(error));
+}
+
+YelpRestaurants.lookup = function(handler) {
+  const SQL = `SELECT * FROM yelps WHERE location_id=$1;`;
+  client.query(SQL, [handler.location.id])
+    .then(result =>{
+      if(result.rowCount > 0){
+        let currentAge = (Date.now() - result.rows[0].created_at) / (1000 * 3600);
+        if( result.rowCount > 0 && currentAge > 1){
+          console.log('Data was too old, refreshing');
+          YelpRestaurants.deleteEntrybyId;(handler.location.id);
+          handler.cacheMiss();
+        }
+        else{
+          console.log('Data in SQL and not too old');
+          handler.cacheHit(result);
+        }
+      }
+      else{
+        console.log('Got data from API');
+        handler.cacheMiss();
+      }
+    })
+    .catch(error => handleError(error));
+}
+
+YelpRestaurants.fetch = function(location){
+  const URL = `https://api.yelp.com/v3/businesses/search?term=restaurants&latitude=${location.latitude}&longitude=${location.longitude}`;
   return superagent.get(URL)
     .set('Authorization', `Bearer ${process.env.YELP_API}`)
-    .then(yelpResults =>{
-      response.send(yelpResults.body.businesses.map((restaurants)=>{
-        return new YelpRestaurants(restaurants);
-      }));
+    .then(result =>{
+      const yelpSummaries = result.body.businesses.map(restaurant =>{
+        const summary = new YelpRestaurants(restaurant);
+        summary.save(location.id);
+        return summary;
+      })
+      return yelpSummaries;
     })
-    .catch(error => handleError(error, response));
+    .catch(error => handleError(error));
 }
+// YelpRestaurants.fetch = function(location){
+//   const URL = `https://api.darksky.net/forecast/${process.env.DARK_SKY_API}/${location.latitude},${location.longitude}`;
+
+//   return superagent.get(URL)
+//     .then(result => {
+//       const weatherSummaries = result.body.daily.data.map(day =>{
+//         const summary = new DailyWeather(day);
+//         summary.save(location.id);
+//         return summary;
+//       });
+//       return weatherSummaries;
+//     });
+// };
+
+function getYelp(request, response){
+  const handler = {
+    location: request.query.data,
+
+    cacheHit: function(result) {
+      response.send(result.rows);
+    },
+
+    cacheMiss: function() {
+      YelpRestaurants.fetch(request.query.data)
+        .then( results => response.send(results))
+        .catch( console.error );
+    },
+  };
+
+  YelpRestaurants.lookup(handler);
+}
+
 /*---------------------MOVIES--------------------------*/
 function getMovie(request, response){
   let cityname = request.query.data.formatted_query.split(',')[0];
@@ -222,13 +288,7 @@ function getMovie(request, response){
 
 
 
-function YelpRestaurants(data){
-  this.name = data.name;
-  this.image_url = data.image_url;
-  this.price = data.price;
-  this.rating = data.rating;
-  this.url = data.url;
-}
+
 
 function Movie(data){
   this.title = data.title;
