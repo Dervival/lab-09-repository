@@ -109,9 +109,10 @@ function DailyWeather(data){
 }
 
 DailyWeather.prototype.save = function(id){
-  const SQL = `INSERT INTO weathers (forecast, time, location_id) VALUES ($1, $2, $3);`;
+  const SQL = `INSERT INTO weathers (forecast, time, location_id, created_at) VALUES ($1, $2, $3, $4);`;
   const values = Object.values(this);
   values.push(id);
+  values.push(Date.now());
   client.query(SQL, values);
 }
 
@@ -129,8 +130,17 @@ DailyWeather.lookup = function(handler) {
   client.query(SQL, [handler.location.id])
     .then(result =>{
       if(result.rowCount > 0){
-        console.log('Data in SQL');
-        handler.cacheHit(result);
+        let currentAge = (Date.now() - result.rows[0].created_at) / (1000 * 60); //invalidate every hour
+        // console.log (currentAge);
+        if( result.rowCount > 0 && currentAge > 1){
+          console.log('Data was too old, refreshing');
+          DailyWeather.deleteEntrybyId(handler.location.id);
+          handler.cacheMiss();
+        }
+        else{
+          console.log('Data in SQL and not too old');
+          handler.cacheHit(result);
+        }
       }
       else{
         console.log('Got data from API');

@@ -16,7 +16,8 @@ CREATE TABLE weathers(
     id SERIAL PRIMARY KEY,
     forecast VARCHAR(255),
     time VARCHAR(255),
-    location_id INTEGER NOT NULL REFERENCES locations(id)
+    location_id INTEGER NOT NULL REFERENCES locations(id),
+    created_at BIGINT
 );
 
 CREATE TABLE yelps(
