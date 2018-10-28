@@ -25,6 +25,8 @@ app.get('/yelp', getYelp);
 
 app.get('/movies', getMovie);
 
+app.get('/meetups', getMeetup);
+
 function handleError(err, res){
   console.error('ERR', err);
   if (res) res.status(500).send('Oh NOOO!!!!  We\'re so sorry.  We really tried.');
@@ -260,17 +262,6 @@ function getYelp(request, response){
 }
 
 /*---------------------MOVIES--------------------------*/
-// function getMovie(request, response){
-//   let cityname = request.query.data.formatted_query.split(',')[0];
-//   const URL = `https://api.themoviedb.org/3/search/movie?api_key=${process.env.MOVIES_API}&language=en-US&query=${cityname}&page=1`
-//   return superagent.get(URL)
-//     .then(movie =>{
-//       response.send(movie.body.results.map((results)=>{
-//         return new Movie(results);
-//       }));
-//     })
-//     .catch(error => handleError(error, response));
-// }
 
 function Movie(data){
   this.title = data.title;
@@ -358,5 +349,96 @@ function getMovie(request, response){
   Movie.lookup(handler);
 }
 
+/*---------------------MEETUPS--------------------------*/
 
+function Meetup(data){
+  this.link = data.link;
+  this.name = data.name;
+  this.creation_date = new Date(data.created).toString().slice(0,15);
+  this.host = data.group.name;
+}
+
+Meetup.prototype.save = function(id){
+  const SQL = `INSERT INTO meetups (link, name, creation_date, host, location_id, created_at) VALUES ($1, $2, $3, $4, $5, $6);`;
+  const values = Object.values(this);
+  values.push(id);
+  values.push(Date.now());
+  client.query(SQL, values);
+}
+
+Meetup.deleteEntrybyId = function (id){
+  const SQL = `DELETE FROM meetups WHERE location_id=${id};`;
+  client.query(SQL)
+    .then(() =>{
+      console.log('Deleted entry from SQL');
+    })
+    .catch(error => handleError(error));
+}
+
+Meetup.lookup = function(handler) {
+  const SQL = `SELECT * FROM meetups WHERE location_id=$1;`;
+  client.query(SQL, [handler.location.id])
+    .then(result =>{
+      if(result.rowCount > 0){
+        let currentAge = (Date.now() - result.rows[0].created_at) / (1000 * 3600 * 24);
+        if( result.rowCount > 0 && currentAge > 1){
+          console.log('Data was too old, refreshing');
+          Movie.deleteEntrybyId(handler.location.id);
+          handler.cacheMiss();
+        }
+        else{
+          console.log('Data in SQL and not too old');
+          handler.cacheHit(result);
+        }
+      }
+      else{
+        console.log('Got data from API');
+        handler.cacheMiss();
+      }
+    })
+    .catch(error => handleError(error));
+}
+
+Meetup.fetch = function(location){
+  // let cityname = location.formatted_query.split(',')[0];
+  // const URL = `https://api.themoviedb.org/3/search/movie?api_key=${process.env.MOVIES_API}&language=en-US&query=${cityname}&page=1`;
+  const URL = `https://api.meetup.com/find/upcoming_events?&sign=true&photo-host=public&lon=${location.longitude}&page=20&lat=${location.latitude}&key=${process.env.MEETUP_API}`;
+  return superagent.get(URL)
+    .then(result =>{
+      // console.log(result);
+      const meetupSummaries = result.body.events.map( meetup => {
+        const summary = new Meetup(meetup);
+        summary.save(location.id);
+        return summary;
+      })
+      return meetupSummaries;
+      // const movieSummaries = result.body.results.map(movie =>{
+      //   const summary = new Movie(movie);
+      //   summary.save(location.id);
+      //   return summary;
+      // })
+      // return movieSummaries;
+    })
+    .catch(error => handleError(error));
+}
+
+function getMeetup(request, response){
+  const handler = {
+    location: request.query.data,
+
+    cacheHit: function(result) {
+      response.send(result.rows);
+    },
+
+    cacheMiss: function() {
+      Meetup.fetch(request.query.data)
+        .then(results => {
+          response.send(results);
+        })
+        .catch( console.error );
+    },
+  };
+
+  Meetup.lookup(handler);
+}
 app.listen(PORT, () => console.log(`App is up on ${PORT}`) );
