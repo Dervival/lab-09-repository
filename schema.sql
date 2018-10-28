@@ -1,8 +1,9 @@
 DROP TABLE IF EXISTS weathers;
 DROP TABLE IF EXISTS yelps;
 DROP TABLE IF EXISTS movies;
+DROP TABLE IF EXISTS meetups;
+DROP TABLE IF EXISTS trails;
 DROP TABLE IF EXISTS locations;
-
 
 CREATE TABLE locations(
     id SERIAL PRIMARY KEY,
@@ -30,24 +31,42 @@ CREATE TABLE yelps(
     location_id INTEGER NOT NULL REFERENCES locations(id),
     created_at BIGINT
 );
--- [ 'id here',
---   'name:Piroshky Piroshky',
---   'image_url:https://s3-media4.fl.yelpcdn.com/bphoto/yjqyb9elWeiFonXkmDiJmA/o.jpg',
---   'price:$',
---   'rating:' 4.5,
---   'url:https://www.yelp.com/biz/piroshky-piroshky-seattle?adjust_creative=FI5C46X5bqXHPIN9fzrAPg&utm_campaign=yelp_api_v3&utm_medium=api_v3_business_search&utm_source=FI5C46X5bqXHPIN9fzrAPg',
---   '1',
---   1540579387012 ]
-
 
 CREATE TABLE movies(
     id SERIAL PRIMARY KEY,
     title VARCHAR(255),
-    overview VARCHAR(255),
-    average_vote NUMERIC(2,1),
+    overview VARCHAR(4095),
+    average_vote NUMERIC(10,5),
     total_votes NUMERIC(8),
     image_url VARCHAR(255),
-    popularity NUMERIC(8),
+    popularity NUMERIC(5,3),
     released_on VARCHAR(255),
-    location_id INTEGER NOT NULL REFERENCES locations(id)
+    location_id INTEGER NOT NULL REFERENCES locations(id),
+    created_at BIGINT
+);
+
+CREATE TABLE meetups(
+    id SERIAL PRIMARY KEY,
+    link VARCHAR(255),
+    name VARCHAR(255),
+    creation_date VARCHAR(255),
+    host VARCHAR(255),
+    location_id INTEGER NOT NULL REFERENCES locations(id),
+    created_at BIGINT
+);
+
+CREATE TABLE trails(
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255),
+    location VARCHAR(255),
+    length NUMERIC(5,1),
+    stars NUMERIC(2,1),
+    star_votes NUMERIC(8),
+    summary VARCHAR(4095),
+    trail_url VARCHAR(255),
+    conditions VARCHAR(255),
+    condition_date VARCHAR(255),
+    condition_time VARCHAR(255),
+    location_id INTEGER NOT NULL REFERENCES locations(id),
+    created_at BIGINT
 );
