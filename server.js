@@ -210,7 +210,7 @@ YelpRestaurants.lookup = function(handler) {
         let currentAge = (Date.now() - result.rows[0].created_at) / (1000 * 3600);
         if( result.rowCount > 0 && currentAge > 1){
           console.log('Data was too old, refreshing');
-          YelpRestaurants.deleteEntrybyId;(handler.location.id);
+          YelpRestaurants.deleteEntrybyId(handler.location.id);
           handler.cacheMiss();
         }
         else{
@@ -240,19 +240,6 @@ YelpRestaurants.fetch = function(location){
     })
     .catch(error => handleError(error));
 }
-// YelpRestaurants.fetch = function(location){
-//   const URL = `https://api.darksky.net/forecast/${process.env.DARK_SKY_API}/${location.latitude},${location.longitude}`;
-
-//   return superagent.get(URL)
-//     .then(result => {
-//       const weatherSummaries = result.body.daily.data.map(day =>{
-//         const summary = new DailyWeather(day);
-//         summary.save(location.id);
-//         return summary;
-//       });
-//       return weatherSummaries;
-//     });
-// };
 
 function getYelp(request, response){
   const handler = {
@@ -273,22 +260,17 @@ function getYelp(request, response){
 }
 
 /*---------------------MOVIES--------------------------*/
-function getMovie(request, response){
-  let cityname = request.query.data.formatted_query.split(',')[0];
-  const URL = `https://api.themoviedb.org/3/search/movie?api_key=${process.env.MOVIES_API}&language=en-US&query=${cityname}&page=1`
-  return superagent.get(URL)
-    .then(movie =>{
-      response.send(movie.body.results.map((results)=>{
-        return new Movie(results);
-      }));
-    })
-    .catch(error => handleError(error, response));
-}
-
-
-
-
-
+// function getMovie(request, response){
+//   let cityname = request.query.data.formatted_query.split(',')[0];
+//   const URL = `https://api.themoviedb.org/3/search/movie?api_key=${process.env.MOVIES_API}&language=en-US&query=${cityname}&page=1`
+//   return superagent.get(URL)
+//     .then(movie =>{
+//       response.send(movie.body.results.map((results)=>{
+//         return new Movie(results);
+//       }));
+//     })
+//     .catch(error => handleError(error, response));
+// }
 
 function Movie(data){
   this.title = data.title;
@@ -299,5 +281,82 @@ function Movie(data){
   this.popularity = data.popularity;
   this.released_on = data.release_date;
 }
+
+Movie.prototype.save = function(id){
+  const SQL = `INSERT INTO movies (title, overview, average_vote, total_votes, image_url, popularity, released_on, location_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`;
+  const values = Object.values(this);
+  values.push(id);
+  values.push(Date.now());
+  client.query(SQL, values);
+}
+
+Movie.deleteEntrybyId = function (id){
+  const SQL = `DELETE FROM movies WHERE location_id=${id};`;
+  client.query(SQL)
+    .then(() =>{
+      console.log('Deleted entry from SQL');
+    })
+    .catch(error => handleError(error));
+}
+
+Movie.lookup = function(handler) {
+  const SQL = `SELECT * FROM movies WHERE location_id=$1;`;
+  client.query(SQL, [handler.location.id])
+    .then(result =>{
+      if(result.rowCount > 0){
+        let currentAge = (Date.now() - result.rows[0].created_at) / (1000 * 3600 * 24);
+        if( result.rowCount > 0 && currentAge > 1){
+          console.log('Data was too old, refreshing');
+          Movie.deleteEntrybyId(handler.location.id);
+          handler.cacheMiss();
+        }
+        else{
+          console.log('Data in SQL and not too old');
+          handler.cacheHit(result);
+        }
+      }
+      else{
+        console.log('Got data from API');
+        handler.cacheMiss();
+      }
+    })
+    .catch(error => handleError(error));
+}
+
+Movie.fetch = function(location){
+  let cityname = location.formatted_query.split(',')[0];
+  const URL = `https://api.themoviedb.org/3/search/movie?api_key=${process.env.MOVIES_API}&language=en-US&query=${cityname}&page=1`;
+  return superagent.get(URL)
+    .then(result =>{
+      const movieSummaries = result.body.results.map(movie =>{
+        const summary = new Movie(movie);
+        summary.save(location.id);
+        return summary;
+      })
+      return movieSummaries;
+    })
+    .catch(error => handleError(error));
+}
+
+function getMovie(request, response){
+  const handler = {
+    location: request.query.data,
+
+    cacheHit: function(result) {
+      response.send(result.rows);
+    },
+
+    cacheMiss: function() {
+      Movie.fetch(request.query.data)
+        .then(results => {
+          response.send(results);
+        })
+        .catch( console.error );
+    },
+  };
+
+  Movie.lookup(handler);
+}
+
 
 app.listen(PORT, () => console.log(`App is up on ${PORT}`) );
